@@ -1,0 +1,302 @@
+#!/usr/bin/env node
+'use strict';
+
+var _microCore = require('micro-core');
+
+var _microCore2 = _interopRequireDefault(_microCore);
+
+var _chalk = require('chalk');
+
+var _fs = require('fs');
+
+var _fs2 = _interopRequireDefault(_fs);
+
+var _args = require('args');
+
+var _args2 = _interopRequireDefault(_args);
+
+var _package = require('../../package.json');
+
+var _package2 = _interopRequireDefault(_package);
+
+var _path = require('path');
+
+var _path2 = _interopRequireDefault(_path);
+
+var _handlebars = require('handlebars');
+
+var _istextorbinary = require('istextorbinary');
+
+var _string_decoder = require('string_decoder');
+
+var _filesize = require('filesize');
+
+var _filesize2 = _interopRequireDefault(_filesize);
+
+var _package3 = require('../../package');
+
+var _mime = require('mime');
+
+var _mime2 = _interopRequireDefault(_mime);
+
+var _denodeify = require('denodeify');
+
+var _denodeify2 = _interopRequireDefault(_denodeify);
+
+var _url = require('url');
+
+function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
+
+function _asyncToGenerator(fn) { return function () { var gen = fn.apply(this, arguments); return new Promise(function (resolve, reject) { function step(key, arg) { try { var info = gen[key](arg); var value = info.value; } catch (error) { reject(error); return; } if (info.done) { resolve(value); } else { return Promise.resolve(value).then(function (value) { return step("next", value); }, function (err) { return step("throw", err); }); } } return step("next"); }); }; }
+
+_args2.default.option('port', 'Port to listen on', 3000).option('cache', 'How long static files should be cached in the browser (seconds)', 3600).option('appendextension', 'Add extension (.html by default) when file not found', false).option('extension', 'Extension to try if appendextension is set', '.html');
+
+const flags = _args2.default.parse(process.argv);
+const directory = _args2.default.sub[0];
+
+process.env.ASSET_DIR = '/' + Math.random().toString(36).substr(2, 10);
+
+let current = process.cwd();
+
+if (directory) {
+  current = _path2.default.resolve(process.cwd(), directory);
+}
+
+const isDir = dir => {
+  try {
+    _fs2.default.statSync(dir);
+  } catch (err) {
+    return false;
+  }
+
+  if (_fs2.default.statSync(dir).isDirectory()) {
+    return true;
+  }
+
+  return false;
+};
+
+const exists = file => {
+  try {
+    _fs2.default.statSync(file);
+  } catch (err) {
+    return false;
+  }
+
+  return true;
+};
+
+if (!isDir(current)) {
+  console.error((0, _chalk.red)('Specified directory doesn\'t exist!'));
+  process.exit(1);
+}
+
+const prepareView = () => {
+  let viewContent = false;
+  const viewPath = _path2.default.normalize(__dirname + '/../../views/index.hbs');
+
+  try {
+    viewContent = _fs2.default.readFileSync(viewPath, 'utf8');
+  } catch (err) {
+    throw err;
+  }
+
+  return (0, _handlebars.compile)(viewContent);
+};
+
+const ignoredFiles = ['.DS_Store', '.git/'];
+
+const renderDirectory = dir => {
+  let files = [];
+  const subPath = _path2.default.relative(current, dir);
+
+  try {
+    files = _fs2.default.readdirSync(dir);
+  } catch (err) {
+    throw err;
+  }
+
+  for (let file of files) {
+    let filePath = _path2.default.resolve(dir, file);
+    let index = files.indexOf(file);
+    let details = _path2.default.parse(filePath);
+
+    details.ext = details.ext.split('.')[1];
+    details.relative = _path2.default.join(subPath, details.base);
+
+    if (isDir(filePath)) {
+      details.base = details.base + '/';
+    } else {
+      let fileStats;
+
+      try {
+        fileStats = _fs2.default.statSync(filePath);
+      } catch (err) {
+        throw err;
+      }
+
+      details.size = (0, _filesize2.default)(fileStats.size, { round: 0 });
+    }
+
+    if (ignoredFiles.indexOf(details.base) > -1) {
+      delete files[index];
+    } else {
+      files[files.indexOf(file)] = details;
+    }
+  }
+
+  if (dir.indexOf(current + '/') > -1) {
+    files.unshift({
+      base: '..',
+      relative: '..'
+    });
+  }
+
+  const render = prepareView(),
+        directory = _path2.default.join(_path2.default.basename(current), subPath, '/'),
+        pathParts = directory.split('/');
+
+  let paths = [];
+  pathParts.pop();
+
+  for (let part in pathParts) {
+    let before = 0,
+        parents = [];
+
+    while (before <= part) {
+      parents.push(pathParts[before]);
+      before++;
+    }
+
+    parents.shift();
+
+    paths.push({
+      name: pathParts[part],
+      url: '/' + parents.join('/')
+    });
+  }
+
+  const details = {
+    port: flags.port,
+    files: files,
+    assetDir: process.env.ASSET_DIR,
+    directory: directory,
+    nodeVersion: process.version.split('v')[1],
+    paths: paths
+  };
+
+  return render(details);
+};
+
+const server = (0, _microCore2.default)((() => {
+  var _ref = _asyncToGenerator(function* (req, res) {
+    var _parse = (0, _url.parse)(req.url);
+
+    const pathname = _parse.pathname;
+
+    let related = _path2.default.parse(_path2.default.join(current, pathname));
+
+    if (related.dir.indexOf(process.env.ASSET_DIR) > -1) {
+      const relative = _path2.default.relative(process.env.ASSET_DIR, pathname);
+      related = _path2.default.parse(_path2.default.join(__dirname, '/../assets', relative));
+    }
+
+    related = decodeURIComponent(_path2.default.format(related));
+
+    if (!exists(related)) {
+      if (_args2.default.appendextension && exists(related + _args2.default.extension)) {
+        related += _args2.default.extension;
+      } else {
+        return (0, _microCore.send)(res, 404, 'Not found');
+      }
+    }
+
+    if (isDir(related)) {
+      const indexPath = _path2.default.join(related, '/index.html');
+      res.setHeader('Content-Type', _mime2.default.lookup(indexPath) + '; charset=utf-8');
+
+      if (!exists(indexPath)) {
+        return (0, _microCore.send)(res, 200, renderDirectory(related));
+      }
+
+      let indexContent;
+
+      try {
+        indexContent = yield (0, _denodeify2.default)(_fs2.default.readFile)(indexPath, 'utf8');
+      } catch (err) {
+        throw err;
+      }
+
+      return (0, _microCore.send)(res, 200, indexContent);
+    }
+
+    let body = 'Not able to load file!',
+        stats,
+        binaryStat;
+
+    try {
+      body = yield (0, _denodeify2.default)(_fs2.default.readFile)(related);
+      stats = yield (0, _denodeify2.default)(_fs2.default.stat)(related);
+      binaryStat = yield (0, _denodeify2.default)(_istextorbinary.isBinary)(_path2.default.parse(related).base, body);
+    } catch (err) {
+      throw err;
+    }
+
+    const getETag = function getETag(s) {
+      return '"' + s.dev + '-' + s.ino + '-' + s.mtime.getTime() + '"';
+    };
+
+    let requestDate = req.headers['if-modified-since'],
+        statusCode = 200;
+
+    if (requestDate) {
+      requestDate = new Date(requestDate);
+
+      if (requestDate.getTime() == stats.mtime.getTime()) {
+        statusCode = 304;
+      }
+    }
+
+    const defaultHeaders = {
+      'Cache-Control': 'public, max-age=' + flags.cache,
+      'Pragma': 'public',
+      'ETag': getETag(stats)
+    };
+
+    for (let header in defaultHeaders) {
+      res.setHeader(header, defaultHeaders[header]);
+    }
+
+    if (binaryStat) {
+      res.statusCode = statusCode;
+      res.end(body, 'binary');
+    } else {
+      const decoder = new _string_decoder.StringDecoder('utf8');
+      let contentType = _mime2.default.lookup(related);
+
+      if (!_path2.default.parse(related).ext) {
+        contentType = 'text/plain';
+      }
+
+      res.setHeader('Content-Type', contentType + '; charset=utf-8');
+      (0, _microCore.send)(res, statusCode, decoder.write(body));
+    }
+  });
+
+  return function (_x, _x2) {
+    return _ref.apply(this, arguments);
+  };
+})());
+
+server.listen(flags.port, () => {
+  const details = server.address();
+
+  process.on('SIGINT', () => {
+    server.close();
+    process.exit(0);
+  });
+
+  if (!process.env.NOW) {
+    console.log((0, _chalk.green)(`Running on http://localhost:${ details.port }`));
+  }
+});
