@@ -18,6 +18,8 @@ import { parse } from 'url'
 args
   .option('port', 'Port to listen on', 3000)
   .option('cache', 'How long static files should be cached in the browser (seconds)', 3600)
+  .option('appendextension', 'Add extension (.html by default) when file not found', false)
+  .option('extension', 'Extension to try if appendextension is set', '.html')
 
 const flags = args.parse(process.argv)
 const directory = args.sub[0]
@@ -171,7 +173,11 @@ const server = micro(async (req, res) => {
   related = decodeURIComponent(path.format(related))
 
   if (!exists(related)) {
-    return send(res, 404, 'Not found')
+    if (args.appendextension && exists(related + args.extension)) {
+      related += args.extension
+    } else {
+      return send(res, 404, 'Not found')
+    }
   }
 
   if (isDir(related)) {
