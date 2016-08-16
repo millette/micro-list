@@ -204,8 +204,8 @@ const server = (0, _microCore2.default)((() => {
     related = decodeURIComponent(_path2.default.format(related));
 
     if (!exists(related)) {
-      if (_args2.default.appendextension && exists(related + _args2.default.extension)) {
-        related += _args2.default.extension;
+      if (flags['append-extension'] && exists(related + flags.extension)) {
+        related += flags.extension;
       } else {
         return (0, _microCore.send)(res, 404, 'Not found');
       }
