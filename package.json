@@ -1,6 +1,6 @@
 {
   "name": "micro-list",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Single-command HTTP directory listing and file serving",
   "scripts": {
     "start": "gulp",
